@@ -59,6 +59,8 @@ pub enum Layer {
     Captions,
     Graphics,
     Footage,
+    /// what's drawn behind a picture in picture, between it and the footage under it (its card, LA2c)
+    Backing,
     Under,
     Sound,
 }
@@ -67,7 +69,8 @@ pub enum Layer {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub layer: Layer,
-    /// what an editor calls it: "captions", "graphics", "footage", "footage 2", "footage over", "under", "sound"
+    /// what an editor calls it: "captions", "graphics", "picture in picture", "behind picture in picture", "footage",
+    /// "footage 2", "footage over", "under", "sound"
     pub name: String,
     pub clips: Vec<Clip>,
 }

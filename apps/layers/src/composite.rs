@@ -2,7 +2,8 @@
 //! exported in layers by a built raea, its passes' frames kept; at each clip's first, middle and last frame the layers
 //! are composited bottom to top (under, footage as layers.json places it, graphics, captions) and compared with the
 //! reference render's frame. A test of the method, run by hand on a machine with a GPU:
-//!   cargo test -p raea-app-layers composite -- --ignored --nocapture   (RAEA_BIN: the raea, default target/release/raea)
+//!   cargo test -p raea-app-layers composite -- --ignored --nocapture   (RAEA_BIN: the raea, default target/release/raea;
+//!   RAEA_LAYERS_PROJECT=DIR/EDIT.tsx checks that composition, its media/ beside it, in place of the fixtures)
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -103,8 +104,9 @@ fn composite(dir: &Path, l: &Layers, f: i64) -> Result<Picture, String> {
                     let (rgba, w, h) = frame(Path::new(&file.path), secs)?;
                     pic.draw(&rgba, w, h, c.r#box.unwrap(), c.fit.as_deref().unwrap_or("fill"), c.opacity as f32);
                 }
-                layer => {
-                    let name = format!("{layer:?}").to_lowercase();
+                _ => {
+                    // a layer's movie is NAME.CODEC.mov, its frames NAME.frames
+                    let name = l.files[c.file].path.split('.').next().unwrap_or_default().to_string();
                     let png = dir.join(format!("{name}.frames/frame-{f:05}.png"));
                     let (rgba, _, _) = raea_io_alpha::read_png(&png)?;
                     pic.over(&rgba, 1.0);
@@ -122,11 +124,17 @@ fn export(bin: &Path, fixture: &Path, work: &Path) -> Result<(Layers, PathBuf), 
     let _ = std::fs::remove_dir_all(&src);
     std::fs::create_dir_all(src.join("media")).map_err(|e| e.to_string())?;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    std::fs::copy(fixture, src.join("edit.tsx")).map_err(|e| e.to_string())?;
-    std::fs::copy(root.join("engine/rune/media/tests/fixtures/clip.mp4"), src.join("media/clip.mp4")).map_err(|e| e.to_string())?;
-    let out = src.join("layers");
+    // a project of its own is exported where it is; a fixture is copied with the test clip beside it
+    let (src, edit) = if fixture.parent() == Some(&Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")) {
+        std::fs::copy(fixture, src.join("edit.tsx")).map_err(|e| e.to_string())?;
+        std::fs::copy(root.join("engine/rune/media/tests/fixtures/clip.mp4"), src.join("media/clip.mp4")).map_err(|e| e.to_string())?;
+        (src, "edit.tsx".to_string())
+    } else {
+        (fixture.parent().unwrap().to_path_buf(), fixture.file_name().unwrap().to_string_lossy().into_owned())
+    };
+    let out = work.join(&name).join("layers");
     let run = Command::new(bin)
-        .args(["export", "layers", "edit.tsx", "-o"])
+        .args(["export", "layers", edit.as_str(), "-o"])
         .arg(&out)
         .current_dir(&src)
         .env("RAEA_LAYERS_KEEP_FRAMES", "1")
@@ -147,7 +155,10 @@ fn composite_the_layers_back_and_they_are_the_render() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let bin = std::env::var_os("RAEA_BIN").map_or_else(|| root.join("target/release/raea"), PathBuf::from);
     let work = std::env::temp_dir().join(format!("raea-layers-la3a-{}", std::process::id()));
-    let mut fixtures: Vec<PathBuf> = std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "tsx")).collect();
+    let mut fixtures: Vec<PathBuf> = match std::env::var_os("RAEA_LAYERS_PROJECT") {
+        Some(p) => vec![PathBuf::from(p)],
+        None => std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "tsx")).collect(),
+    };
     fixtures.sort();
     let mut failed = Vec::new();
     for fx in &fixtures {

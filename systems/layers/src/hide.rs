@@ -16,8 +16,9 @@ const HOLDS: &str = r#":has([data-raea-role="caption"]):not([data-raea-role="cap
 
 /// RAEA_HIDE_LAYERS: the layers keyed (a key a line or comma) drawn hidden, each element with its stamps and all
 /// inside it; RAEA_HIDE_MEDIA: the footage (the page's only elements with data-raea-src) and what's over it or under
-/// it, as above; RAEA_LAYER: one layer of an export, which wins over RAEA_HIDE_MEDIA; as page CSS. None when none of
-/// them hides anything.
+/// it, as above; RAEA_LAYER: one layer of an export (captions, graphics, under, or behind:FILE, what's drawn behind
+/// the footage of FILE where it's a picture in picture), which wins over RAEA_HIDE_MEDIA; as page CSS. None when none
+/// of them hides anything.
 pub fn hidden_css() -> Option<String> {
     let var = |k: &str| std::env::var(k).ok();
     hiding_css(&var("RAEA_HIDE_LAYERS").unwrap_or_default(), var("RAEA_HIDE_MEDIA").as_deref(), var("RAEA_LAYER").as_deref())
@@ -52,11 +53,22 @@ pub fn hiding_css(keys: &str, media: Option<&str>, layer: Option<&str>) -> Optio
             css.push_str(&format!("{HOLDS} {{ background: transparent !important; border-color: transparent !important; box-shadow: none !important; outline: none !important; }}\n"));
             hide.push(format!(":not({HOLDS}, [data-raea-role=\"caption\"], [data-raea-role=\"caption\"] *)"));
         }
+        // what's drawn behind one picture in picture (docs/layers.feature LA2c): the backgrounds of what holds that
+        // file and no other footage (its card); what also holds other footage is cleared, not hidden, since the page
+        // draws nothing inside a hidden element; the footage and everything else hidden
+        Some(l) if l.starts_with("behind:") => {
+            let src = serde_json::to_string(&l["behind:".len()..]).unwrap_or_default();
+            let holds = format!(":has([data-raea-src={src}])");
+            css.push_str("html, body { background: transparent !important; }\n");
+            css.push_str(&format!("{holds} {{ color: transparent !important; text-shadow: none !important; }}\n"));
+            css.push_str(&format!("{holds}:has([data-raea-src]:not([data-raea-src={src}])) {{ background: transparent !important; border-color: transparent !important; box-shadow: none !important; outline: none !important; }}\n"));
+            hide.push(format!(":not({holds})"));
+        }
         Some(mode @ ("graphics" | "under")) => {
             footage(&mut hide, &mut css, if mode == "graphics" { "1" } else { "under" });
             hide.push(CAPTION.into());
         }
-        Some(other) => eprintln!("raea: RAEA_LAYER={other} isn't a layer (captions, graphics or under); the page is drawn whole"),
+        Some(other) => eprintln!("raea: RAEA_LAYER={other} isn't a layer (captions, graphics, under or behind:FILE); the page is drawn whole"),
         None => footage(&mut hide, &mut css, media.unwrap_or_default()),
     }
     if !hide.is_empty() {
@@ -70,7 +82,7 @@ pub fn hiding_css(keys: &str, media: Option<&str>, layer: Option<&str>) -> Optio
 /// everything the page draws. It's drawn by Bevy, not the page, so the page's CSS can't hide it: runtime/scene leaves
 /// its parts out of the captions and graphics layers instead.
 pub fn draws_3d(layer: Option<&str>) -> bool {
-    !matches!(layer, Some("captions" | "graphics"))
+    !matches!(layer, Some("captions" | "graphics")) && !layer.is_some_and(|l| l.starts_with("behind:"))
 }
 
 /// The CSS selector of the element a layer key names, and of everything inside it: "loc[#index][|use|use…]" as its

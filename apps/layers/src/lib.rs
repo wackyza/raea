@@ -5,7 +5,9 @@
 //!   2. RAEA_LAYER=graphics: what the page draws over the footage, less the captions, transparent;
 //!   3. RAEA_LAYER=under, when there is footage or 3D: what's drawn under the page's footage and graphics (the
 //!      backgrounds holding footage, and the 3D), opaque, kept unless it's black;
-//!   4. RAEA_LAYER=captions, when a frame shows a caption: the captions alone, and the words as SubRip.
+//!   4. RAEA_LAYER=captions, when a frame shows a caption: the captions alone, and the words as SubRip;
+//!   5. RAEA_LAYER=behind:FILE, for each file shown as a picture in picture: what's drawn behind it (its card), kept
+//!      only where it's a picture in picture, on a track between it and the footage under it.
 //! The footage and sounds are clips of their own files where they are; each layer is clips of its movie, cut where it
 //! draws something. A render that isn't an export draws once, as it always has (LA2o).
 
@@ -51,19 +53,24 @@ pub fn render(args: &[String], env: &[(&str, &str)]) -> R<()> {
     Ok(())
 }
 
-/// A layer's movie, rendered with RAEA_LAYER=`layer` into DIR/LAYER.CODEC.mov: what it made and its frames' folder,
-/// which is removed unless `keep` (LA3a's test reads the frames).
+/// A layer's movie, rendered with RAEA_LAYER=`layer` into DIR/NAME.CODEC.mov (NAME the layer's, or `name` for one of
+/// many), its frames in DIR/NAME.frames, removed unless `keep` (LA3a's test reads them).
 fn pass(tsx: &Path, comp: &[String], dir: &Path, layer: &str, codec: raea_io_alpha::Codec, fps: f64, keep: bool, also: impl FnOnce(&Path) -> bool) -> R<Option<(PathBuf, raea_io_alpha::Made)>> {
+    pass_named(tsx, comp, dir, layer, layer, codec, fps, keep, also)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pass_named(tsx: &Path, comp: &[String], dir: &Path, name: &str, layer: &str, codec: raea_io_alpha::Codec, fps: f64, keep: bool, also: impl FnOnce(&Path) -> bool) -> R<Option<(PathBuf, raea_io_alpha::Made)>> {
     // the layer under the page is the bottom one, so it's drawn opaque: over 3D the page's background is the 3D's
     // clear, which --alpha would clear to nothing
     let alpha: &[String] = if layer == "under" { &[] } else { &["--alpha".to_string()] };
-    let frames = dir.join(format!("{layer}.frames"));
+    let frames = dir.join(format!("{name}.frames"));
     let _ = std::fs::remove_dir_all(&frames);
-    let out = dir.join(format!("{layer}.{}.mov", codec_ext(codec)));
+    let out = dir.join(format!("{name}.{}.mov", codec_ext(codec)));
     let done = render(&[[tsx.display().to_string(), "-o".into(), format!("{}/", frames.display())].as_slice(), alpha, comp].concat(), &[("RAEA_LAYER", layer)])
         .and_then(|_| if also(&frames) { raea_io_alpha::encode_dir(&frames, &out, codec, fps, 0.9).map(|m| Some((out, m))) } else { Ok(None) });
     // the frames' render leaves its manifest beside them: the reference's is the export's
-    let _ = std::fs::remove_file(dir.join(format!("{layer}.render.json")));
+    let _ = std::fs::remove_file(dir.join(format!("{name}.render.json")));
     if !keep {
         let _ = std::fs::remove_dir_all(&frames);
     }
@@ -105,6 +112,19 @@ pub fn export(args: &[String]) -> R<(Layers, String)> {
     // what's under the page: the backgrounds holding footage, and the 3D, which the whole page is drawn over
     let under = if runs.is_empty() && manifest["has3d"] != true { None } else { pass(&tsx, &comp, &dir, "under", codec, fps, keep, lit)? };
     let captions = if said.iter().any(|s| !s.is_empty()) { pass(&tsx, &comp, &dir, "captions", codec, fps, keep, |_| true)? } else { None };
+    // what's behind each file shown as a picture in picture (its card), between it and the footage under it (LA2c):
+    // a pass for each such file, kept only where it's a picture in picture
+    let full = |r: &plan::Run| plan::full(&r.bx, w as f64, h as f64);
+    let mut pips: Vec<String> = runs.iter().zip(&covered).filter(|(r, c)| !**c && !full(r)).map(|(r, _)| r.src.clone()).collect();
+    pips.dedup();
+    pips.sort();
+    pips.dedup();
+    let mut behind = Vec::new();
+    for (k, src) in pips.iter().enumerate() {
+        let made = pass_named(&tsx, &comp, &dir, &format!("behind-{}", k + 1), &format!("behind:{src}"), codec, fps, keep, |_| true)?;
+        let shown: Vec<(i64, i64)> = runs.iter().zip(&covered).filter(|(r, c)| !**c && !full(r) && r.src == *src).map(|(r, _)| (r.start, r.end)).collect();
+        behind.push((made, shown));
+    }
     let srt_lines = srt::lines(&said);
     let srt_name = (!srt_lines.is_empty()).then(|| format!("{name}.srt"));
     if let Some(n) = &srt_name {
@@ -149,9 +169,13 @@ pub fn export(args: &[String]) -> R<(Layers, String)> {
         }
     }
     let mut tracks: Vec<Track> = Vec::new();
-    let movie = |files: &mut Vec<File>, made: &Option<(PathBuf, raea_io_alpha::Made)>, layer: Layer, name: &str, ids: &mut Ids| -> Vec<Track> {
+    let movie = |files: &mut Vec<File>, made: &Option<(PathBuf, raea_io_alpha::Made)>, layer: Layer, name: &str, ids: &mut Ids, within: Option<&[(i64, i64)]>| -> Vec<Track> {
         let Some((path, m)) = made else { return Vec::new() };
-        let spans = plan::spans(&m.drawn);
+        // where it draws something, and (behind a picture in picture) only within the frames given
+        let spans: Vec<(i64, i64)> = match within {
+            None => plan::spans(&m.drawn),
+            Some(w) => plan::spans(&m.drawn).into_iter().flat_map(|(a, b)| w.iter().map(move |&(c, d)| (a.max(c), b.min(d)))).filter(|(a, b)| a < b).collect(),
+        };
         if spans.is_empty() {
             let _ = std::fs::remove_file(path);
             return Vec::new();
@@ -161,12 +185,19 @@ pub fn export(args: &[String]) -> R<(Layers, String)> {
         let clips = spans.iter().map(|&(a, b)| Clip::new(ids.next(&name[..1]), k, a, b - a, a as f64 / fps)).collect();
         model::lay(layer, name, clips)
     };
-    tracks.extend(movie(&mut files, &captions, Layer::Captions, "captions", &mut ids));
+    tracks.extend(movie(&mut files, &captions, Layer::Captions, "captions", &mut ids, None));
     tracks.extend(model::lay(Layer::Footage, "footage over", over));
-    tracks.extend(movie(&mut files, &graphics, Layer::Graphics, "graphics", &mut ids));
+    tracks.extend(movie(&mut files, &graphics, Layer::Graphics, "graphics", &mut ids, None));
     tracks.extend(model::lay(Layer::Footage, "picture in picture", rest));
+    // every file's backing on as few tracks as hold them, under the pictures in picture
+    let mut backing: Vec<Clip> = Vec::new();
+    for (made, shown) in &behind {
+        backing.extend(movie(&mut files, made, Layer::Backing, "behind picture in picture", &mut ids, Some(shown)).into_iter().flat_map(|t| t.clips));
+    }
+    backing.sort_by_key(|c| c.start);
+    tracks.extend(model::lay(Layer::Backing, "behind picture in picture", backing));
     tracks.extend(model::lay(Layer::Footage, "footage", main));
-    tracks.extend(movie(&mut files, &under, Layer::Under, "under", &mut ids));
+    tracks.extend(movie(&mut files, &under, Layer::Under, "under", &mut ids, None));
     let mut audio = linked;
     for c in sounds {
         let f = add(&mut files, &mut index, &plan::resolve(&edit_dir, &c.src), sound)?;
@@ -188,12 +219,13 @@ pub fn export(args: &[String]) -> R<(Layers, String)> {
 
     let count = |l: Layer| layers.tracks.iter().filter(|t| t.layer == l).map(|t| t.clips.len()).sum::<usize>();
     let mut said = format!(
-        "APPLIED  layers \"{name}\" at {}: {} tracks; {}, {}, {}, {}, {}{}; {:.2} s at {fps} fps, {w}x{h}",
+        "APPLIED  layers \"{name}\" at {}: {} tracks; {}, {}, {}{}, {}, {}{}; {:.2} s at {fps} fps, {w}x{h}",
         dir.display(),
         layers.tracks.len(),
         many(count(Layer::Captions), "captions clip"),
         many(count(Layer::Graphics), "graphics clip"),
         many(count(Layer::Footage), "footage clip"),
+        Some(count(Layer::Backing)).filter(|&k| k > 0).map_or(String::new(), |k| format!(", {} behind a picture in picture", many(k, "clip"))),
         if count(Layer::Under) == 1 { "1 clip under the footage".to_string() } else { format!("{} clips under the footage", count(Layer::Under)) },
         many(count(Layer::Sound), "sound"),
         srt_name.as_ref().map_or(String::new(), |n| format!("; {} in {n}", many(srt_lines.len(), "caption line"))),

@@ -15,7 +15,7 @@ pub fn track_name(layer: Layer, name: &str) -> String {
     match layer {
         Layer::Captions => format!("raea {name}"),
         Layer::Graphics => name.replacen("graphics", "raea overlay", 1),
-        Layer::Under => format!("raea {name}"),
+        Layer::Under | Layer::Backing => format!("raea {name}"),
         Layer::Footage | Layer::Sound => name.to_string(),
     }
 }
@@ -52,7 +52,7 @@ pub fn timeline(l: &Layers, dir: &Path) -> Timeline {
                         let own = c.link.as_deref().and_then(|id| all().find(|a| a.id == id));
                         Clip { volume: own.map_or(0.0, |a| 10f64.powf(a.gain_db / 20.0)), place, ..base }
                     }
-                    Layer::Graphics | Layer::Captions | Layer::Under => Clip { volume: 0.0, place: Place::centred(l.width, l.height), ..base },
+                    Layer::Graphics | Layer::Captions | Layer::Under | Layer::Backing => Clip { volume: 0.0, place: Place::centred(l.width, l.height), ..base },
                 }
             })
             .collect();

@@ -122,3 +122,15 @@ fn an_exports_layers_split_the_captions_from_the_rest() {
     assert_eq!(hiding_css("", Some("1"), Some("text")), None);
 }
 
+#[test]
+fn whats_behind_a_picture_in_picture_is_its_own_holders_alone() {
+    // docs/layers.feature LA2c: the card holding C and no other footage keeps its background; what holds C and other
+    // footage too (the page) is cleared, not hidden; everything else (the footage among it) is hidden
+    let css = hiding_css("", None, Some("behind:/media/C.mp4")).unwrap();
+    assert!(css.contains(r#":has([data-raea-src="/media/C.mp4"]):has([data-raea-src]:not([data-raea-src="/media/C.mp4"])) { background: transparent !important;"#), "{css}");
+    assert!(css.ends_with(r#":not(:has([data-raea-src="/media/C.mp4"])) { visibility: hidden !important; }"#), "{css}");
+    // a file's name is quoted as CSS reads it
+    assert!(hiding_css("", None, Some(r#"behind:/media/a "b".mp4"#)).unwrap().contains(r#"[data-raea-src="/media/a \"b\".mp4"]"#));
+    assert!(!draws_3d(Some("behind:/media/C.mp4")));
+}
+

@@ -32,6 +32,8 @@ Feature: A render in layers: captions, graphics, footage and sound apart, for Ca
     | captions | the words said, as raea draws them, marked (LA1)               | a transparent movie + an .srt beside |
     | graphics | everything else the page draws over the footage: text, shapes | a transparent movie                  |
     | footage  | each <Video>'s file, at its trims, place and size (CC2a)       | clips of the original files          |
+    | behind   | what's drawn behind a picture in picture (its card), between   | a transparent movie for each file    |
+    |          | it and the footage under it (LA2c)                             | shown as a picture in picture        |
     | under    | what's drawn beneath the footage: the backgrounds of what      | an opaque movie, left out when all   |
     |          | holds it (CC2b), and the 3D, which the whole page is drawn over | black                                |
     | sound    | each sound clip, and footage's own sound linked to its clip    | audio clips of the original files    |
@@ -94,6 +96,19 @@ Feature: A render in layers: captions, graphics, footage and sound apart, for Ca
       And the .srt is written beside the export for the person to upload to a network or keep, and no editor's
         project imports it (the captions movie is what the timeline shows, in raea's own style)
 
+    Scenario: LA2c. What's behind a picture in picture sits between it and the footage under it
+      Given footage that doesn't fill the frame (a picture in picture) over other footage, on a card: an element
+        holding it whose background is drawn over the footage under it
+      Then for each file shown as a picture in picture, RAEA_LAYER=behind:FILE draws the backgrounds of what holds that
+        file and no other footage; what holds other footage too is cleared, not hidden; the rest is hidden
+      And its clips are kept only where that file is a picture in picture, on a track named "behind picture in
+        picture", above the footage that fills the frame and below the pictures in picture
+      And the under layer, beneath all the footage, can't hold it: footage that fills the frame would cover it (the
+        multi-clip test's card behind C at 4-6 s: 23.2 dB with it in the under layer, 37.7 with it behind C)
+      And where a picture in picture is the only footage, what holds it also holds the page's background, so the
+        backing layer and the under layer both draw it: the same picture, but a picture in picture moved in an editor
+        leaves its card behind in the under layer
+
   Rule: LA3. The layers put back together are the render
     Scenario: LA3a. The fixtures' layers composited over each other match their reference render
       Given fixtures: full-frame footage with a lower third (a bar and words) and captions; a picture in picture on a
@@ -108,6 +123,9 @@ Feature: A render in layers: captions, graphics, footage and sound apart, for Ca
       And on 11-16 (this Mac, M-series, a source build): highlight 33.0-35.1 dB, lower-third 34.1-35.1, pip-card
         33.2-33.5, three-d 39.1-39.8; the floor is 30 dB (the reference is H.264, and the footage is decoded and scaled
         by the test, not the page)
+      And RAEA_LAYERS_PROJECT=DIR/EDIT.tsx checks a project of its own in place of the fixtures: on 11-16 a 10 s cut of
+        three raea-rendered clips (cuts, one clip at two trims, a picture in picture on a card, four captions, a lower
+        third and a title that come and go, its own sound and a muted clip over a music bed) at 36.2-42.7 dB
 
     Scenario: LA3b. What doesn't carry is said, not dropped quietly
       Then captions always go on top: a caption drawn under something else is still the top layer in the export
