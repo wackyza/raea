@@ -27,7 +27,7 @@ fn pictures_sit_as_their_fit_shows_them() {
 
 #[test]
 fn layers_json_goes_bottom_first_with_footage_carrying_its_own_sound() {
-    let file = |path: &str, kind, w, h| File { path: path.into(), kind, seconds: 3.0, width: w, height: h, has_audio: kind == FileKind::Video };
+    let file = |path: &str, kind, w, h| File { path: path.into(), kind, seconds: 3.0, width: w, height: h, has_audio: kind == FileKind::Video, channels: 2, sample_rate: 48_000 };
     let clip = |id: &str, f, start, frames| LClip::new(id.into(), f, start, frames, 0.0);
     let t = |layer, name: &str, clips| LTrack { layer, name: name.into(), clips };
     let v1 = LClip { r#box: Some([0.0, 0.0, 1080.0, 1920.0]), fit: Some("cover".into()), link: Some("a1".into()), ..clip("v1", 0, 0, 90) };

@@ -49,7 +49,7 @@ fn layers_json_reads_back_as_it_was_written() {
         frames: 90,
         reference: "reference.mp4".into(),
         srt: Some("edit.srt".into()),
-        files: vec![model::File { path: "/m/clip.mp4".into(), kind: model::FileKind::Video, seconds: 3.0, width: 640, height: 360, has_audio: true }],
+        files: vec![model::File { path: "/m/clip.mp4".into(), kind: model::FileKind::Video, seconds: 3.0, width: 640, height: 360, has_audio: true, channels: 2, sample_rate: 48_000 }],
         tracks: vec![model::Track { layer: Layer::Footage, name: "footage".into(), clips: vec![v] }, model::Track { layer: Layer::Sound, name: "sound".into(), clips: vec![a] }],
         notes: vec![],
     };
@@ -115,4 +115,74 @@ fn a_static_file_is_found_in_the_edits_media_folder() {
     assert_eq!(resolve(&dir, "media/a.mp4"), want);
     assert_eq!(resolve(&dir, want.to_str().unwrap()), want);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// the FCP7 XML (docs/layers.feature LA5a)
+
+#[test]
+fn a_picture_in_picture_sits_as_raea_drew_it_in_basic_motions_terms() {
+    use crate::xml::motion;
+    // C (1280x720) contained in a 380x225 box at (850, 50) on a 1280x720 sequence: scaled to 380/1280, its centre
+    // right of and above the frame's, nothing cut
+    let (scale, centre, crop, note) = motion([850.0, 50.0, 380.0, 225.0], "contain", 1280.0, 720.0, 1280.0, 720.0);
+    assert!((scale - 380.0 / 1280.0 * 100.0).abs() < 1e-9 && note.is_none());
+    assert!((centre[0] - (1040.0 - 640.0) / 1280.0).abs() < 1e-9 && (centre[1] - (162.5 - 360.0) / 720.0).abs() < 1e-9);
+    assert_eq!(crop, [0.0; 4]);
+    // a landscape take covering a portrait frame: scaled to fill its height, its sides cut evenly
+    let (scale, centre, crop, _) = motion([0.0, 0.0, 1080.0, 1920.0], "cover", 1920.0, 1080.0, 1080.0, 1920.0);
+    assert!((scale - 1920.0 / 1080.0 * 100.0).abs() < 1e-9 && centre == [0.0, 0.0]);
+    assert!((crop[0] - (3413.333_333 - 1080.0) / 2.0 / 3413.333_333 * 100.0).abs() < 1e-3 && crop[0] == crop[1] && crop[2] == 0.0);
+    // stretched in raea: fitted inside, and said
+    assert!(motion([0.0, 0.0, 500.0, 100.0], "fill", 640.0, 640.0, 1080.0, 1920.0).3.is_some());
+}
+
+#[test]
+fn the_xml_has_the_tracks_bottom_first_and_footage_linked_to_its_sound() {
+    use crate::model::{File, FileKind, Track};
+    let file = |path: &str, kind, w, h, a| File { path: path.into(), kind, seconds: 10.0, width: w, height: h, has_audio: a, channels: 2, sample_rate: 48_000 };
+    let c = |id: &str, f, start, frames, at| Clip::new(id.into(), f, start, frames, at);
+    let v1 = Clip { r#box: Some([0.0, 0.0, 1280.0, 720.0]), fit: Some("cover".into()), link: Some("a1".into()), ..c("v1", 0, 0, 90, 1.0) };
+    let v2 = Clip { r#box: Some([0.0, 0.0, 1280.0, 720.0]), fit: Some("cover".into()), ..c("v2", 0, 90, 30, 5.0) };
+    let a1 = Clip { link: Some("v1".into()), ..c("a1", 0, 0, 90, 1.0) };
+    let l = Layers {
+        version: model::VERSION,
+        name: "edit & co".into(),
+        width: 1280,
+        height: 720,
+        fps: 29.97,
+        frames: 120,
+        reference: "reference.mp4".into(),
+        srt: None,
+        files: vec![file("/m/my clip.mp4", FileKind::Video, 1280, 720, true), file("graphics.prores.mov", FileKind::Video, 1280, 720, false), file("/m/music.wav", FileKind::Audio, 0, 0, true)],
+        tracks: vec![
+            Track { layer: Layer::Graphics, name: "graphics".into(), clips: vec![c("g1", 1, 30, 60, 1.0)] },
+            Track { layer: Layer::Footage, name: "footage".into(), clips: vec![v1, v2] },
+            Track { layer: Layer::Sound, name: "sound".into(), clips: vec![a1, Clip { gain_db: -12.0, ..c("a2", 2, 0, 120, 0.0) }] },
+        ],
+        notes: vec![],
+    };
+    let (x, notes) = crate::xml::write(&l, std::path::Path::new("/out/xml/edit"));
+    assert!(notes.is_empty(), "{notes:?}");
+    // 29.97 is a timebase of 30, NTSC; the name escaped
+    assert!(x.contains("<name>edit &amp; co</name><duration>120</duration><rate><timebase>30</timebase><ntsc>TRUE</ntsc></rate>"), "{x}");
+    // video tracks bottom first: the footage (v1 from 30 source frames in, v2 from 150), then the graphics
+    let footage = x.find("<clipitem id=\"v1\"").unwrap();
+    assert!(footage < x.find("<clipitem id=\"g1\"").unwrap());
+    assert!(x.contains("<start>0</start><end>90</end><in>30</in><out>120</out>") && x.contains("<start>90</start><end>120</end><in>150</in><out>180</out>"), "{x}");
+    // a file in full once (its path percent-encoded), by id after
+    assert_eq!(x.matches("<pathurl>file://localhost/m/my%20clip.mp4</pathurl>").count(), 1);
+    assert!(x.contains("<file id=\"file-1\"/>"));
+    // the graphics' movie found beside the XML, its alpha straight
+    assert!(x.contains("<pathurl>file://localhost/out/xml/edit/graphics.prores.mov</pathurl>") && x.contains("<alphatype>straight</alphatype>"));
+    // v1 and its sound's two channels (each a mono clipitem on a track of its own, as Premiere writes a stereo clip)
+    // linked together, in each of the three; v2 has no sound placed
+    let link = "<link><linkclipref>v1</linkclipref><mediatype>video</mediatype><trackindex>1</trackindex><clipindex>1</clipindex></link><link><linkclipref>a1</linkclipref><mediatype>audio</mediatype><trackindex>1</trackindex><clipindex>1</clipindex></link><link><linkclipref>a1-2</linkclipref><mediatype>audio</mediatype><trackindex>2</trackindex><clipindex>1</clipindex></link>";
+    assert_eq!(x.matches(link).count(), 3, "{x}");
+    assert!(x.contains("<clipitem id=\"a1-2\" premiereChannelType=\"mono\"><masterclipid>masterclip-1</masterclipid>"), "{x}");
+    assert!(x.contains("<sourcetrack><mediatype>audio</mediatype><trackindex>2</trackindex></sourcetrack>"));
+    // the file's sound as its two channels, left and right; the two tracks to output channels 1 and 2
+    assert!(x.contains("<channelcount>1</channelcount><layout>stereo</layout><audiochannel><sourcechannel>2</sourcechannel><channellabel>right</channellabel></audiochannel>"));
+    assert!(x.contains("<outputchannelindex>1</outputchannelindex></track>") && x.contains("<outputchannelindex>2</outputchannelindex></track>"));
+    // the music at -12 dB as Audio Levels' linear gain
+    assert!(x.contains("<parameterid>level</parameterid><name>Level</name><valuemin>0.00003162</valuemin><valuemax>31.6228</valuemax><value>0.251189</value>"), "{x}");
 }

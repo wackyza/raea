@@ -14,6 +14,7 @@
 pub mod model;
 pub mod plan;
 pub mod srt;
+pub mod xml;
 #[cfg(test)]
 mod composite;
 #[cfg(test)]
@@ -31,9 +32,47 @@ pub type R<T> = Result<T, String>;
 
 pub const USAGE: &str = "raea export layers EDIT.tsx [--composition ID] [-o DIR] [--name NAME] [--alpha-codec prores|hevc|rle|png]   (the composition as its layers and the timeline that places them, layers.json: the captions and the graphics as transparent movies, what's under the footage (and any 3D) as an opaque one, the footage and sounds as clips of their own files where they are, the captions also as SubRip, and the reference render; into out/layers/NAME, or DIR)";
 
-/// `export layers ...`; None for anything else.
+pub const USAGE_XML: &str = "raea export xml EDIT.tsx [--composition ID] [-o DIR] [--name NAME] [--alpha-codec prores|hevc|rle|png]   (the composition as an FCP7 XML project for Premiere Pro (File, Import) and DaVinci Resolve (File, Import, Timeline): its layers as raea export layers writes them, NAME.xml beside them placing them on a timeline, the footage and sounds as clips of their own files where they are, each clip's own sound linked to it; into out/xml/NAME, or DIR)";
+
+/// `export layers ...` and `export xml ...`; None for anything else.
 pub fn cli(args: &[String]) -> Option<R<String>> {
-    (args.first().map(String::as_str) == Some("export") && args.get(1).map(String::as_str) == Some("layers")).then(|| export(&args[2..]).map(|(_, said)| said))
+    if args.first().map(String::as_str) != Some("export") {
+        return None;
+    }
+    match args.get(1).map(String::as_str) {
+        Some("layers") => Some(export(&args[2..]).map(|(_, said)| said)),
+        Some("xml") => Some(export_xml(&args[2..])),
+        _ => None,
+    }
+}
+
+/// `raea export xml`: the layers into DIR (out/xml/NAME unless -o says), then NAME.xml beside them (LA5a).
+fn export_xml(args: &[String]) -> R<String> {
+    let tsx = args.first().filter(|a| !a.starts_with('-')).ok_or(USAGE_XML)?;
+    let edit = PathBuf::from(tsx).canonicalize().map_err(|e| format!("{tsx}: {e}"))?;
+    let name = flag(args, "--name").unwrap_or_else(|| edit.file_stem().unwrap().to_string_lossy().into_owned());
+    let dir = flag(args, "-o").map_or_else(|| edit.parent().unwrap().join("out/xml").join(&name), PathBuf::from);
+    let mut layer_args = args.to_vec();
+    if flag(args, "-o").is_none() {
+        layer_args.extend(["-o".into(), dir.display().to_string()]);
+    }
+    let (layers, _) = export(&layer_args)?;
+    let dir = dir.canonicalize().map_err(|e| format!("{}: {e}", dir.display()))?;
+    let (text, notes) = xml::write(&layers, &dir);
+    let out = dir.join(format!("{name}.xml"));
+    std::fs::write(&out, text).map_err(|e| format!("{}: {e}", out.display()))?;
+    let count = |l: Layer| layers.tracks.iter().filter(|t| t.layer == l).count();
+    let mut said = format!(
+        "APPLIED  FCP7 XML \"{name}\" at {}: {} video tracks, {} audio tracks; import it in Premiere Pro (File, Import) or DaVinci Resolve (File, Import, Timeline); the layers, layers.json{} and the reference render beside it",
+        out.display(),
+        layers.tracks.len() - count(Layer::Sound),
+        count(Layer::Sound),
+        layers.srt.as_ref().map_or(String::new(), |s| format!(", {s} (captions to upload)")),
+    );
+    for n in layers.notes.iter().chain(&notes) {
+        said.push_str(&format!("\n  note  {n}"));
+    }
+    Ok(said)
 }
 
 /// `raea render ARGS` by this same program with only `env`'s layer settings: none of the person's own RAEA_LAYER or
@@ -180,7 +219,7 @@ pub fn export(args: &[String]) -> R<(Layers, String)> {
             let _ = std::fs::remove_file(path);
             return Vec::new();
         }
-        files.push(File { path: path.file_name().unwrap().to_string_lossy().into_owned(), kind: FileKind::Video, seconds: m.frames as f64 / fps, width: m.width, height: m.height, has_audio: false });
+        files.push(File { path: path.file_name().unwrap().to_string_lossy().into_owned(), kind: FileKind::Video, seconds: m.frames as f64 / fps, width: m.width, height: m.height, has_audio: false, channels: 2, sample_rate: 48_000 });
         let k = files.len() - 1;
         let clips = spans.iter().map(|&(a, b)| Clip::new(ids.next(&name[..1]), k, a, b - a, a as f64 / fps)).collect();
         model::lay(layer, name, clips)
@@ -272,8 +311,8 @@ pub fn video(path: &Path) -> R<File> {
         match b.open_video(path) {
             Ok(d) => {
                 let i = d.info();
-                let has_audio = raea_io_media::decode_audio_window(path, 0.0, 0.05).is_ok_and(|a| a.len() > 0);
-                return Ok(File { path: path.display().to_string(), kind: FileKind::Video, seconds: i.duration, width: i.width, height: i.height, has_audio });
+                let (has_audio, channels, sample_rate) = heard(path);
+                return Ok(File { path: path.display().to_string(), kind: FileKind::Video, seconds: i.duration, width: i.width, height: i.height, has_audio, channels, sample_rate });
             }
             Err(e) => why.push(format!("{}: {e}", b.name())),
         }
@@ -284,7 +323,17 @@ pub fn video(path: &Path) -> R<File> {
 /// A sound file: its length from its container.
 pub fn sound(path: &Path) -> R<File> {
     let seconds = raea_io_media::probe_seconds(path).ok_or_else(|| format!("{}: no sound length", path.display()))?;
-    Ok(File { path: path.display().to_string(), kind: FileKind::Audio, seconds, width: 0, height: 0, has_audio: true })
+    let (_, channels, sample_rate) = heard(path);
+    Ok(File { path: path.display().to_string(), kind: FileKind::Audio, seconds, width: 0, height: 0, has_audio: true, channels, sample_rate })
+}
+
+/// Whether a short window of a file's sound decodes to samples, and its channels and sample rate (stereo at 48 kHz
+/// when it has none to read).
+fn heard(path: &Path) -> (bool, u32, u32) {
+    match raea_io_media::decode_audio_window(path, 0.0, 0.05) {
+        Ok(a) if a.len() > 0 => (true, (a.channels.len() as u32).max(1), a.rate),
+        _ => (false, 2, 48_000),
+    }
 }
 
 pub fn codec_ext(c: raea_io_alpha::Codec) -> &'static str {

@@ -43,6 +43,19 @@ pub struct File {
     pub height: u32,
     /// whether it has sound of its own (footage)
     pub has_audio: bool,
+    /// its sound's channels and sample rate, when it has sound (an editor places each channel; Premiere a track each)
+    #[serde(default = "two")]
+    pub channels: u32,
+    #[serde(default = "rate_48k")]
+    pub sample_rate: u32,
+}
+
+fn two() -> u32 {
+    2
+}
+
+fn rate_48k() -> u32 {
+    48_000
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
