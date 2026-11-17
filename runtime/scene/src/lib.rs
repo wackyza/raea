@@ -221,7 +221,17 @@ pub fn items_of(scene: &[Node3]) -> Vec<Item> {
         out.retain(|i| i.kind != "ambient" || own(i));
     }
     raea_core_review::camera_override(&mut out); // a review's fixed camera in place of the scene's own (RAEA_CAMERA)
+    // an export's captions or under layer draws none of the 3D: its cameras stay, so the view renders, empty
+    layer_parts(&mut out, std::env::var("RAEA_LAYER").ok().as_deref());
     out
+}
+
+/// A frame's parts as an export's layer (RAEA_LAYER, docs/layers.feature LA2a) draws them: all of them, or only the
+/// cameras for a layer that draws no 3D (raea_sys_layers::draws_3d).
+fn layer_parts(out: &mut Vec<Item>, layer: Option<&str>) {
+    if !raea_sys_layers::draws_3d(layer) {
+        out.retain(|i| matches!(i.kind, "camera" | "rendercam"));
+    }
 }
 
 
@@ -331,4 +341,31 @@ fn rows_into_of(all: &[Vec<Item>], tr: &Tracks, p: &mut Program) {
     // baked simulations (<MeshSequence>, <Goo>): meshseq.rs
     meshseq::rows(&tr.meshseqs, p);
     render_cameras(all, &tracks_of(all, &["rendercam"]), p); // cameras into images (R3F23a): raea-runtime-look rendercam.rs
+}
+
+#[cfg(test)]
+mod layer_tests {
+    use super::*;
+
+    fn part(kind: &'static str) -> Item {
+        Item { kind, props: Default::default(), shape: None, at: None, material: None, world: Mat4::IDENTITY }
+    }
+
+    /// docs/layers.feature LA2a: the captions and under layers draw none of the 3D, keeping only its cameras; the
+    /// graphics layer and a render that isn't an export draw it all
+    #[test]
+    fn a_layer_without_3d_keeps_only_the_cameras() {
+        let all = || vec![part("camera"), part("mesh"), part("directional"), part("text"), part("rendercam"), part("splat")];
+        let kinds = |layer: Option<&str>| {
+            let mut out = all();
+            layer_parts(&mut out, layer);
+            out.iter().map(|i| i.kind).collect::<Vec<_>>()
+        };
+        for layer in [Some("captions"), Some("under")] {
+            assert_eq!(kinds(layer), ["camera", "rendercam"], "{layer:?}");
+        }
+        for layer in [None, Some("graphics")] {
+            assert_eq!(kinds(layer).len(), 6, "{layer:?}");
+        }
+    }
 }

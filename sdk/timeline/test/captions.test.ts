@@ -78,8 +78,15 @@ describe("TL7c: captions made from what is said", () => {
   test("in a composition each line is a sequence of words of its own", () => {
     const t = film()
     expect(seqEdits(t, { op: "captions", lines: [w("Hello there.", 0, 20), w("This is raea", 21, 40)], style: caption })).toEqual([
-      { op: "text", at: 0, frames: 20, text: "Hello there.", style: caption },
-      { op: "text", at: 21, frames: 19, text: "This is raea", style: caption },
+      { op: "text", at: 0, frames: 20, text: "Hello there.", style: caption, caption: true },
+      { op: "text", at: 21, frames: 19, text: "This is raea", style: caption, caption: true },
     ])
+  })
+
+  test("a caption clip added on its own is still a caption in the code; other words aren't (docs/layers.feature LA1a)", () => {
+    const t = film()
+    const said = { id: "text-9", kind: "text", name: "Said here", props: { said: true }, start: 0, length: 30 }
+    expect(seqEdits(t, { op: "add", kind: "text", clip: said })).toEqual([{ op: "text", at: 0, frames: 30, text: "Said here", caption: true }])
+    expect(seqEdits(t, { op: "add", kind: "text", clip: { ...said, props: {} } })).toEqual([{ op: "text", at: 0, frames: 30, text: "Said here" }])
   })
 })

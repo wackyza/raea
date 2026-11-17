@@ -249,8 +249,9 @@ pub(crate) fn page_props(kind: &str, props: Option<&Map<String, Value>>, dir: &P
         // a spreading box shadow's data-raea-bevy-shadow kept: Blitz spreads it as bevy_ui does, vendor/blitz-paint render/box_shadow.rs;
         // a Popover's data-raea-bevy-popover kept: Blitz places it beside its parent after layout, vendor/blitz-dom bevy_popover.rs;
         // the source stamps data-raea-loc, data-raea-use and data-raea-idx kept for the render manifest and the layer pass,
-        // engine/bundle stamp.rs)
-        const KEPT: [&str; 15] = ["data-raea-idx", "data-raea-start", "data-raea-bevy-debug", "data-raea-bevy-popover", "data-raea-bevy-shadow", "data-raea-bevy-text", "data-raea-bevy-slice", "data-raea-bevy-global-z", "data-raea-blend", "data-raea-bevy-scroll", "data-raea-bevy-ignore-scroll", "data-raea-bevy-scrollbar", "data-raea-bevy-thumb", "data-raea-loc", "data-raea-use"];
+        // engine/bundle stamp.rs; a caption's data-raea-role kept: an export's layers find it by that, docs/layers.feature LA1a,
+        // systems/layers hide.rs)
+        const KEPT: [&str; 16] = ["data-raea-role", "data-raea-idx", "data-raea-start", "data-raea-bevy-debug", "data-raea-bevy-popover", "data-raea-bevy-shadow", "data-raea-bevy-text", "data-raea-bevy-slice", "data-raea-bevy-global-z", "data-raea-blend", "data-raea-bevy-scroll", "data-raea-bevy-ignore-scroll", "data-raea-bevy-scrollbar", "data-raea-bevy-thumb", "data-raea-loc", "data-raea-use"];
         if k == "children" || k == "key" || (k.starts_with("data-raea") && !KEPT.contains(&k.as_str())) || k == "data-props" || k == "data-shape" || k == "data-anim" || v.is_null() {
             continue;
         }
@@ -374,5 +375,21 @@ mod css_url_tests {
         let file = raea_io_home::src(&raea_runtime_react::scene::media_path(&dir, "a.png"));
         assert_eq!(out, format!(r#"url("{file}") , url(https://x.io/b.png), url('data:image/png;base64,AA')"#));
         assert_eq!(super::css_urls(&dir, "linear-gradient(red, blue)"), "linear-gradient(red, blue)");
+    }
+}
+
+#[cfg(test)]
+mod kept_tests {
+    use serde_json::json;
+
+    /// a caption's mark reaches the page, where an export's layers find it (docs/layers.feature LA1a); the renderer's
+    /// other bookkeeping doesn't
+    #[test]
+    fn a_captions_mark_reaches_the_page() {
+        let props = json!({"data-raea-role": "caption", "data-raea-owner": "x", "data-role": "kept", "children": "Hi"});
+        let out = super::page_props("div", props.as_object(), std::path::Path::new("."));
+        assert_eq!(out.get("data-raea-role"), Some(&json!("caption")));
+        assert_eq!(out.get("data-role"), Some(&json!("kept")));
+        assert!(!out.contains_key("data-raea-owner") && !out.contains_key("children"), "{out:?}");
     }
 }

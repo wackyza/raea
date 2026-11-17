@@ -125,7 +125,7 @@ export type SeqEdit =
   /** a text sequence's words (TL7c) */
   | { op: "words"; i: number; text: string }
   /** words put on the picture from `at` for `frames`: a new sequence after the composition's last (TL7c) */
-  | { op: "text"; at: number; frames: number; text: string; /** how the words are drawn: a text style (registry.ts), raea's title when none */ style?: TextStyle }
+  | { op: "text"; at: number; frames: number; text: string; /** how the words are drawn: a text style (registry.ts), raea's title when none */ style?: TextStyle; /** words said, made by the captions operation (TL7c): the code written marks them data-raea-role="caption", so an export puts them on its captions layer (docs/layers.feature LA1a) */ caption?: true }
   /** an effect put on the picture from `at` for `frames`: a new sequence holding an <Effect>, after the composition's last (TL7b) */
   | { op: "effect"; at: number; frames: number; kind: string; amount: number; /** a plugin's effect: the parts that draw it */ parts?: EffectPart[] }
   /** a recording put on the timeline from `at` for `frames` (TL8b): a new sequence holding an <Audio> of the file */
@@ -431,7 +431,7 @@ export function seqEdits(t: Timeline, op: Op): SeqEdit[] | { why: string } {
       // words put on the picture: a new sequence of its own
       if (op.clip.kind !== "text") return { why: "only words, effects, recordings and the project's files are added to a composition here" }
       const style = textStyleOf(op.clip.props?.style)
-      return [{ op: "text", at: Math.max(0, Math.round(op.clip.start)), frames: Math.max(1, Math.round(op.clip.length)), text: (op.clip.name ?? "Text").trim() || "Text", ...(style && { style }) }]
+      return [{ op: "text", at: Math.max(0, Math.round(op.clip.start)), frames: Math.max(1, Math.round(op.clip.length)), text: (op.clip.name ?? "Text").trim() || "Text", ...(style && { style }), ...(op.clip.props?.said === true && { caption: true as const }) }]
     }
     case "captions": {
       // captions made from what is said (TL7c): each line a sequence of words of its own, in the captions' style
@@ -439,7 +439,7 @@ export function seqEdits(t: Timeline, op: Op): SeqEdit[] | { why: string } {
       const tried = apply(t, op)
       if (!tried.ok) return { why: tried.why }
       const made = tried.timeline.tracks.find((k) => !t.tracks.some((o) => o.id === k.id))?.clips ?? []
-      return made.map((c) => ({ op: "text", at: c.start, frames: c.length, text: c.name ?? "", style: op.style }))
+      return made.map((c) => ({ op: "text", at: c.start, frames: c.length, text: c.name ?? "", style: op.style, caption: true as const }))
     }
     default:
       return { why: `the composition's sequences don't take "${op.op}" yet` }

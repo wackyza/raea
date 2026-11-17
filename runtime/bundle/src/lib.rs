@@ -60,7 +60,8 @@ pub fn bundle_css(js: &str) -> Option<String> {
 pub fn page_css(dir: &Path, w: u32, js: &Path) -> Option<String> {
     // its url()s as files from the edit's folder (raea-runtime-cssurls), where the CSS files it imports are found
     let bundled = std::fs::read_to_string(js).ok().and_then(|t| bundle_css(&t)).map(|c| css_file_urls(&c, dir, dir, |_| ()));
-    // then the layers RAEA_HIDE_LAYERS hides (the layer pass's oracle)
+    // then the layers RAEA_HIDE_LAYERS hides (the layer pass's oracle), and what RAEA_HIDE_MEDIA and RAEA_LAYER hide (an
+    // export's layers, docs/capcut.feature CC2b, docs/layers.feature LA2a)
     let parts: Vec<String> = [brand_css(dir, w), bundled, raea_sys_layers::hidden_css()].into_iter().flatten().collect();
     (!parts.is_empty()).then(|| parts.join("\n"))
 }

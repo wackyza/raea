@@ -21,3 +21,5 @@ raea-sys-procmat = { path = "../../systems/procmat" }
 raea-core-review = { path = "../../core/review" }
 # a part's layer key from its source stamp (docs/review.feature R2a)
 raea-sys-frame = { path = "../../systems/frame" }
+# which of an export's layers draw the 3D (RAEA_LAYER, docs/layers.feature LA2a)
+raea-sys-layers = { path = "../../systems/layers" }

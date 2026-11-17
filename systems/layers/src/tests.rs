@@ -94,3 +94,31 @@ fn a_layer_key_selects_its_element_alone() {
     let s = layer_selector("card.tsx:2:10#2|comp.tsx:6:27#2|x.tsx:1:1");
     assert!(s.starts_with(r#"[data-raea-loc="card.tsx:2:10"][data-raea-idx="2"][data-raea-use="comp.tsx:6:27#2|x.tsx:1:1"]"#), "{s}");
 }
+
+#[test]
+fn the_footage_hidden_draws_as_it_did() {
+    // RAEA_HIDE_MEDIA's CSS as it was before docs/layers.feature: the CapCut export's passes don't change
+    assert_eq!(hiding_css("", None, None), None);
+    assert_eq!(hiding_css("", Some("1"), None).unwrap(), ":has([data-raea-src]) { background: transparent !important; box-shadow: none !important; }\n[data-raea-src] { visibility: hidden !important; }");
+    assert_eq!(hiding_css("", Some("under"), None).unwrap(), ":has([data-raea-src]) { color: transparent !important; text-shadow: none !important; }\n[data-raea-src], :not(:has([data-raea-src])) { visibility: hidden !important; }");
+}
+
+#[test]
+fn an_exports_layers_split_the_captions_from_the_rest() {
+    // docs/layers.feature LA2a: captions alone; the graphics and what's under the footage without them
+    let captions = hiding_css("", None, Some("captions")).unwrap();
+    // what holds a caption is cleared, not hidden (the page draws nothing inside a hidden element); the rest is hidden
+    assert!(captions.contains(r#":has([data-raea-role="caption"]):not([data-raea-role="caption"] *) { background: transparent !important;"#), "{captions}");
+    assert!(captions.ends_with(r#":not(:has([data-raea-role="caption"]):not([data-raea-role="caption"] *), [data-raea-role="caption"], [data-raea-role="caption"] *) { visibility: hidden !important; }"#), "{captions}");
+    assert!(captions.contains("html, body { background: transparent !important; }"), "{captions}");
+    let graphics = hiding_css("", None, Some("graphics")).unwrap();
+    assert_eq!(graphics, format!("{}, {CAPTION} {{ visibility: hidden !important; }}", hiding_css("", Some("1"), None).unwrap().trim_end_matches(" { visibility: hidden !important; }")));
+    let under = hiding_css("", None, Some("under")).unwrap();
+    assert_eq!(under, format!("{}, {CAPTION} {{ visibility: hidden !important; }}", hiding_css("", Some("under"), None).unwrap().trim_end_matches(" { visibility: hidden !important; }")));
+    // RAEA_LAYER wins over RAEA_HIDE_MEDIA; layers hidden by key stay hidden in every layer
+    assert_eq!(hiding_css("", Some("under"), Some("graphics")), Some(graphics));
+    assert!(hiding_css("a.tsx:3:5", None, Some("captions")).unwrap().contains(r#"[data-raea-loc="a.tsx:3:5"]"#));
+    // a layer it doesn't know draws the page whole
+    assert_eq!(hiding_css("", Some("1"), Some("text")), None);
+}
+

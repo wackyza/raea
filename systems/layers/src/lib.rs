@@ -15,7 +15,7 @@ mod page;
 mod scene;
 
 pub use file::Recorder;
-pub use hide::{hidden_css, layer_selector};
+pub use hide::{CAPTION, draws_3d, hidden_css, hiding_css, layer_selector};
 pub use raster::{Tri, raster};
 #[cfg(feature = "page")]
 pub use page::page_ids;
