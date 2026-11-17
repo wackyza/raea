@@ -13752,7 +13752,6 @@ dependencies = [
  "raea-io-home",
  "raea-io-media",
  "raea-runtime-bundle",
- "serde_json",
 ]
 
 [[package]]

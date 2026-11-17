@@ -1,50 +1,12 @@
-//! CC2a-c without a render: a manifest's frames as footage runs, its sound clips, the overlay's spans, where a picture
-//! sits in CapCut's terms, and clips laid on tracks.
+//! CC2a without a render: where a picture sits in CapCut's terms, and layers.json as CapCut's tracks (LA4b). The
+//! manifest's runs, sounds and spans are tested where they're read, in raea-app-layers.
 
-use serde_json::json;
+use std::path::Path;
 
+use raea_app_layers::model::{self, Clip as LClip, File, FileKind, Layer, Layers, Track as LTrack};
+
+use crate::from_layers;
 use crate::plan::*;
-use raea_io_capcut::{Clip, Kind};
-
-/// 90 frames at 30 fps: one take cut into two pieces (a jump in its source time at frame 45), another file in a
-/// corner from frame 60, moving one pixel at frame 70. Source times in whole milliseconds, as the manifest has them.
-fn manifest() -> serde_json::Value {
-    let ms = |t: f64| (t * 1000.0).round() / 1000.0;
-    let frames: Vec<_> = (0..90)
-        .map(|f| {
-            let mut v = vec![json!({"src": "media/a.mp4", "at": ms(if f < 45 { 0.5 + f as f64 / 30.0 } else { 3.0 + (f - 45) as f64 / 30.0 }), "box": [0.0, 0.0, 1080.0, 1920.0], "fit": "cover", "opacity": 1.0})];
-            if f >= 60 {
-                v.push(json!({"src": "media/pip.mp4", "at": ms((f - 60) as f64 / 15.0), "box": [if f >= 70 { 662.0 } else { 660.0 }, 200.0, 360.0, 360.0], "opacity": 1.0}));
-            }
-            json!({"frame": f, "videos": v})
-        })
-        .collect();
-    json!({"width": 1080, "height": 1920, "fps": 30.0, "frames": frames, "sounds": {"clips": [{"src": "/m/music.wav", "from": 0, "to": 90, "at": 0.0, "gainDb": -6.0, "fadeOut": 0.5}]}})
-}
-
-#[test]
-fn footage_runs_break_where_the_source_jumps() {
-    let r = runs(&manifest(), 30.0);
-    assert_eq!(r.iter().map(|r| (r.src.as_str(), r.start, r.end)).collect::<Vec<_>>(), [("media/a.mp4", 0, 45), ("media/a.mp4", 45, 90), ("media/pip.mp4", 60, 90)]);
-    assert!((r[1].at - 3.0).abs() < 1e-9);
-    assert_eq!((r[0].rate, r[1].rate), (Some(1.0), Some(1.0)), "a take at its own speed, though each step is 33 or 34 ms");
-    assert!((r[2].rate.unwrap() - 2.0).abs() < 1e-6, "the corner plays at twice its speed");
-    assert!(r[2].moved && !r[0].moved);
-    assert_eq!(r[2].fit, "fill");
-}
-
-#[test]
-fn sounds_keep_gain_and_fades() {
-    let s = sounds(&manifest());
-    assert_eq!(s.len(), 1);
-    assert_eq!((s[0].from, s[0].to, s[0].gain_db, s[0].fade_out), (0, 90, -6.0, 0.5));
-}
-
-#[test]
-fn overlay_spans_are_runs_of_drawn_frames() {
-    assert_eq!(spans(&[false, true, true, false, false, true]), [(1, 3), (5, 6)]);
-    assert!(spans(&[false; 4]).is_empty());
-}
 
 #[test]
 fn pictures_sit_as_their_fit_shows_them() {
@@ -64,22 +26,47 @@ fn pictures_sit_as_their_fit_shows_them() {
 }
 
 #[test]
-fn clips_go_on_as_few_tracks_as_hold_them() {
-    let c = |start, frames| Clip { start, frames, ..Clip::default() };
-    let t = lay(Kind::Audio, "sound", vec![c(0, 90), c(10, 5), c(15, 10), c(90, 5)]);
-    assert_eq!(t.iter().map(|t| (t.name.as_str(), t.clips.len())).collect::<Vec<_>>(), [("sound", 2), ("sound 2", 2)]);
-}
-
-/// staticFile("x.mp4") is "/media/x.mp4" in the manifest: the export finds it where the render did, in media/ beside
-/// the edit, as it finds a relative path; an absolute path stays as it is
-#[test]
-fn a_static_file_is_found_in_the_edits_media_folder() {
-    let dir = std::env::temp_dir().join(format!("raea-capcut-resolve-{}", std::process::id()));
-    std::fs::create_dir_all(dir.join("media")).unwrap();
-    std::fs::write(dir.join("media/a.mp4"), "").unwrap();
-    let want = dir.join("media/a.mp4").canonicalize().unwrap();
-    assert_eq!(resolve(&dir, "/media/a.mp4"), want);
-    assert_eq!(resolve(&dir, "media/a.mp4"), want);
-    assert_eq!(resolve(&dir, want.to_str().unwrap()), want);
-    std::fs::remove_dir_all(&dir).unwrap();
+fn layers_json_goes_bottom_first_with_footage_carrying_its_own_sound() {
+    let file = |path: &str, kind, w, h| File { path: path.into(), kind, seconds: 3.0, width: w, height: h, has_audio: kind == FileKind::Video };
+    let clip = |id: &str, f, start, frames| LClip::new(id.into(), f, start, frames, 0.0);
+    let t = |layer, name: &str, clips| LTrack { layer, name: name.into(), clips };
+    let v1 = LClip { r#box: Some([0.0, 0.0, 1080.0, 1920.0]), fit: Some("cover".into()), link: Some("a1".into()), ..clip("v1", 0, 0, 90) };
+    let a1 = LClip { gain_db: -6.0, link: Some("v1".into()), ..clip("a1", 0, 0, 90) };
+    let l = Layers {
+        version: model::VERSION,
+        name: "edit".into(),
+        width: 1080,
+        height: 1920,
+        fps: 30.0,
+        frames: 90,
+        reference: "reference.mp4".into(),
+        srt: Some("edit.srt".into()),
+        files: vec![file("/m/a.mp4", FileKind::Video, 1920, 1080), file("captions.prores.mov", FileKind::Video, 1080, 1920), file("graphics.prores.mov", FileKind::Video, 1080, 1920), file("/m/music.wav", FileKind::Audio, 0, 0)],
+        tracks: vec![
+            t(Layer::Captions, "captions", vec![clip("c1", 1, 10, 30)]),
+            t(Layer::Graphics, "graphics", vec![clip("g1", 2, 0, 90)]),
+            t(Layer::Footage, "footage", vec![v1]),
+            t(Layer::Sound, "sound", vec![a1, LClip { gain_db: -12.0, fade_out: 0.5, ..clip("a2", 3, 0, 90) }]),
+        ],
+        notes: vec![],
+    };
+    let tl = from_layers::timeline(&l, Path::new("/out/edit"));
+    // bottom first: the footage is CapCut's main track (no name), then the overlay, then the captions; sound after
+    assert_eq!(tl.tracks.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["", "raea overlay", "raea captions", "sound"]);
+    // a layer's movie is found beside layers.json; the footage where it is
+    assert_eq!(tl.media[1].path, Path::new("/out/edit/captions.prores.mov"));
+    assert_eq!(tl.media[0].path, Path::new("/m/a.mp4"));
+    // the footage carries its own sound at its gain (-6 dB), so that sound isn't a clip of its own; the music is
+    let foot = &tl.tracks[0].clips[0];
+    assert!((foot.volume - 10f64.powf(-6.0 / 20.0)).abs() < 1e-9);
+    assert_eq!(tl.tracks[3].clips.len(), 1);
+    assert!((tl.tracks[3].clips[0].volume - 10f64.powf(-12.0 / 20.0)).abs() < 1e-9 && tl.tracks[3].clips[0].fade_out == 0.5);
+    // the layers' movies fill the canvas, silent
+    let cap = &tl.tracks[2].clips[0];
+    assert_eq!((cap.start, cap.frames, cap.volume, cap.place.scale, cap.place.x, cap.place.y), (10, 30, 0.0, 1.0, 540.0, 960.0));
+    // footage with no linked sound plays silent
+    let mut quiet = l.clone();
+    quiet.tracks[2].clips[0].link = None;
+    quiet.tracks[3].clips.remove(0);
+    assert_eq!(from_layers::timeline(&quiet, Path::new("/out/edit")).tracks[0].clips[0].volume, 0.0);
 }

@@ -126,8 +126,13 @@ Feature: A render in layers: captions, graphics, footage and sound apart, for Ca
       And it names no editor's format: CapCut's draft and the XML are written from it
 
     Scenario: LA4b. The CapCut export reads it
-      Then `raea export capcut` is layers.json written as a CapCut draft, with a captions track above the overlay,
-        and apps/capcut's tests pass as before for a composition with no captions
+      Then `raea export capcut` exports the composition in layers into out/capcut/NAME (raea-app-layers) and writes
+        layers.json as a CapCut draft (apps/capcut from_layers.rs): its tracks bottom first, the footage CapCut's main
+        track, then "raea overlay" (the graphics), then "raea captions"; "raea under" below the footage when there is one
+      And a footage clip's linked sound is the clip's own volume, as CapCut keeps a video's sound, which its Extract
+        audio separates; footage with no linked sound is silent
+      And for a composition with no captions the draft is the one it was before, less the 3D, which is now under the
+        footage as raea draws it
       And reference.mp4 is copied into the draft's folder, on no track, where CC2d kept it only beside the draft;
         every export's folder holds it, so the person can compare what the editor plays with what raea rendered
 

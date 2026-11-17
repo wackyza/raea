@@ -1,34 +1,7 @@
-//! The files a draft uses, probed through raea's media backends (a picture's upright size and length, whether it has
-//! sound; a sound's length), and the draft's cover: the reference render's first frame as a small JPEG.
+//! The draft's cover: the reference render's first frame as a small JPEG. (The files a draft uses are probed by the
+//! layers export, raea-app-layers.)
 
 use std::path::Path;
-
-use raea_io_capcut::{Media, MediaKind};
-
-use crate::R;
-
-/// A video file: its display size (rotation applied) and length from the first backend that opens it, and whether a
-/// short window of its sound decodes to samples.
-pub fn video(path: &Path) -> R<Media> {
-    let mut why = Vec::new();
-    for b in raea_io_media::preferred() {
-        match b.open_video(path) {
-            Ok(d) => {
-                let i = d.info();
-                let has_audio = raea_io_media::decode_audio_window(path, 0.0, 0.05).is_ok_and(|a| a.len() > 0);
-                return Ok(Media { path: path.to_path_buf(), kind: MediaKind::Video, seconds: i.duration, width: i.width, height: i.height, has_audio });
-            }
-            Err(e) => why.push(format!("{}: {e}", b.name())),
-        }
-    }
-    Err(format!("{} didn't open as video ({})", path.display(), why.join("; ")))
-}
-
-/// A sound file: its length from its container.
-pub fn sound(path: &Path) -> R<Media> {
-    let seconds = raea_io_media::probe_seconds(path).ok_or_else(|| format!("{}: no sound length", path.display()))?;
-    Ok(Media { path: path.to_path_buf(), kind: MediaKind::Audio, seconds, width: 0, height: 0, has_audio: true })
-}
 
 /// The first frame of `video`, at most 540 pixels on its long side, as a JPEG.
 pub fn cover(video: &Path) -> Option<Vec<u8>> {
