@@ -13,6 +13,7 @@ use crate::{
 };
 use blitz_traits::shell::Viewport;
 use style::Atom;
+use selectors::matching::ElementSelectorFlags;
 use style::invalidation::element::restyle_hints::RestyleHint;
 use style::stylesheets::OriginSet;
 use thin_vec::ThinVec;
@@ -287,6 +288,25 @@ impl DocumentMutator<'_> {
                 data.hint |= RestyleHint::RESTYLE_SELF;
             }
             up = node.parent;
+        }
+    }
+
+    /// raea: `from` and each element up from it whose `:has()` was matched (Stylo flags it ANCHORS_RELATIVE_SELECTOR)
+    /// matched again, itself only, after a node under it was inserted or removed. The traversal visited them (their
+    /// ancestors marked dirty) but kept the answer their `:has()` gave before: a caption a <Sequence> put on the page
+    /// at its frame stayed hidden under `:not(:has([data-raea-role="caption"]))` (docs/layers.feature LA2a, an
+    /// export's captions pass), and footage that came in later under RAEA_HIDE_MEDIA=under. Chrome matches them again.
+    fn restyle_has_anchors(&mut self, from: NodeId) {
+        let anchors = ElementSelectorFlags::ANCHORS_RELATIVE_SELECTOR | ElementSelectorFlags::ANCHORS_RELATIVE_SELECTOR_NON_SUBJECT;
+        let mut at = Some(from);
+        while let Some(id) = at {
+            let Some(node) = self.doc.nodes.get_mut(id) else { break };
+            if node.element_data().is_some_and(|e| e.selector_flags.get().intersects(anchors)) {
+                if let Some(mut data) = node.try_stylo_element_data_mut().and_then(|s| s.get_mut()) {
+                    data.hint |= RestyleHint::RESTYLE_SELF;
+                }
+            }
+            at = node.parent;
         }
     }
 
@@ -595,6 +615,9 @@ impl DocumentMutator<'_> {
             parent.mark_ancestors_dirty();
             parent.children.retain(|id| *id != node_id);
             self.maybe_record_node(parent_id);
+            if node_is_in_document {
+                self.restyle_has_anchors(parent_id);
+            }
         }
     }
 
@@ -635,6 +658,9 @@ impl DocumentMutator<'_> {
 
             parent.children.retain(|id| *id != node_id);
             self.maybe_record_node(parent_id);
+            if parent_is_in_doc {
+                self.restyle_has_anchors(parent_id);
+            }
         }
 
         node
@@ -661,6 +687,9 @@ impl DocumentMutator<'_> {
         for child_id in children {
             self.process_removed_subtree(child_id);
             let _ = self.doc.drop_node_ignoring_parent(child_id);
+        }
+        if parent_is_in_doc {
+            self.restyle_has_anchors(node_id);
         }
         self.maybe_record_node(node_id);
     }
@@ -740,6 +769,9 @@ impl DocumentMutator<'_> {
 
             old_parent.children.retain(|id| *id != child_id);
             self.maybe_record_node(old_parent_id);
+            if child_was_in_doc {
+                self.restyle_has_anchors(old_parent_id);
+            }
         }
 
         let new_parent = &mut self.doc.nodes[parent_id];
@@ -758,6 +790,9 @@ impl DocumentMutator<'_> {
         }
 
         insert_children_fn(new_parent, child_ids);
+        if new_parent_is_in_document {
+            self.restyle_has_anchors(parent_id);
+        }
 
         for child_id in child_ids.iter().copied() {
             let child = &mut self.doc.nodes[child_id];

@@ -68,11 +68,12 @@ pub(crate) struct Sound {
 static MANIFEST: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 /// The manifest, its folder made first (2D stills write it before their frames): the composition's length in frames
-/// (whatever was rendered of it; raea check --quick samples by it, #86), boxes as drawn, findings, sounds.
+/// (whatever was rendered of it; raea check --quick samples by it, #86), boxes as drawn, findings, sounds, and whether
+/// it drew 3D (an export in layers draws the 3D in the layer under the page, docs/layers.feature LA2a).
 fn write_manifest(cx: &mut Ctx, (w, h, fps, length): (u32, u32, f64, i64), found: Vec<raea_core_facts::Finding>, heard: impl FnOnce(&Ctx) -> Value) -> R<()> {
     let (Some(path), Some(frames)) = (MANIFEST.lock().unwrap().clone(), cx.manifest.take()) else { return Ok(()) };
     path.parent().map_or(Ok(()), std::fs::create_dir_all).map_err(|e| format!("{}: {e}", path.display()))?;
-    std::fs::write(&path, json!({"width": w, "height": h, "fps": fps, "length": length, "frames": frames, "findings": raea_core_facts::finding::ranked(found), "sounds": heard(cx), "not_applied": not_applied::seen(), "layers": raea_sys_layers::finish(fps)}).to_string()).map_err(|e| format!("{}: {e}", path.display()))
+    std::fs::write(&path, json!({"width": w, "height": h, "fps": fps, "length": length, "frames": frames, "findings": raea_core_facts::finding::ranked(found), "sounds": heard(cx), "not_applied": not_applied::seen(), "layers": raea_sys_layers::finish(fps), "has3d": cx.scene3d.is_some() || cx.live3d.is_some()}).to_string()).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// `render --stage WxH`: a responsive composition (one that lays out from useVideoConfig) laid out at a stage's size, as

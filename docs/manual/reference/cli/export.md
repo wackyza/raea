@@ -24,6 +24,7 @@ CapCut rewrites its project list when it quits, so `raea export capcut` refuses 
 
 ```sh
 raea export capcut EDIT.tsx [--composition ID] [-o DIR] [--name NAME] [--alpha-codec prores|hevc|rle|png] [--no-register]   (the composition as a CapCut draft ready in its timeline: its footage and sounds as clips of their own files at their trims and gains, everything raea draws as transparent overlay clips above them; into CapCut's projects, entered in its project list while CapCut is closed, or a draft folder in DIR; the reference render and the overlay movie kept in out/capcut/NAME)
+raea export layers EDIT.tsx [--composition ID] [-o DIR] [--name NAME] [--alpha-codec prores|hevc|rle|png]   (the composition as its layers and the timeline that places them, layers.json: the captions and the graphics as transparent movies, what's under the footage (and any 3D) as an opaque one, the footage and sounds as clips of their own files where they are, the captions also as SubRip, and the reference render; into out/layers/NAME, or DIR)
 ```
 
 Headless: it needs nothing running and opens no window. Takes up to 2 arguments besides its flags.

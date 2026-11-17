@@ -221,7 +221,7 @@ pub fn items_of(scene: &[Node3]) -> Vec<Item> {
         out.retain(|i| i.kind != "ambient" || own(i));
     }
     raea_core_review::camera_override(&mut out); // a review's fixed camera in place of the scene's own (RAEA_CAMERA)
-    // an export's captions or under layer draws none of the 3D: its cameras stay, so the view renders, empty
+    // an export's captions or graphics layer draws none of the 3D: its cameras stay, so the view renders, empty
     layer_parts(&mut out, std::env::var("RAEA_LAYER").ok().as_deref());
     out
 }
@@ -351,8 +351,8 @@ mod layer_tests {
         Item { kind, props: Default::default(), shape: None, at: None, material: None, world: Mat4::IDENTITY }
     }
 
-    /// docs/layers.feature LA2a: the captions and under layers draw none of the 3D, keeping only its cameras; the
-    /// graphics layer and a render that isn't an export draw it all
+    /// docs/layers.feature LA2a: the captions and graphics layers draw none of the 3D, keeping only its cameras; the
+    /// layer under the page and a render that isn't an export draw it all
     #[test]
     fn a_layer_without_3d_keeps_only_the_cameras() {
         let all = || vec![part("camera"), part("mesh"), part("directional"), part("text"), part("rendercam"), part("splat")];
@@ -361,10 +361,10 @@ mod layer_tests {
             layer_parts(&mut out, layer);
             out.iter().map(|i| i.kind).collect::<Vec<_>>()
         };
-        for layer in [Some("captions"), Some("under")] {
+        for layer in [Some("captions"), Some("graphics")] {
             assert_eq!(kinds(layer), ["camera", "rendercam"], "{layer:?}");
         }
-        for layer in [None, Some("graphics")] {
+        for layer in [None, Some("under")] {
             assert_eq!(kinds(layer).len(), 6, "{layer:?}");
         }
     }

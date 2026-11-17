@@ -193,6 +193,7 @@ members = [
     "apps/targets",
     "apps/game",
     "apps/capcut",
+    "apps/layers",
     "apps/play",
     "tools/sdk-props",
     "tools/hands-audit",

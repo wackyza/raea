@@ -160,6 +160,11 @@ impl BlitzPage {
             if let Some(l) = node.element_data().and_then(|e| e.inline_layout_data.as_ref()) {
                 t["lines"] = json!(l.layout.len());
             }
+            // words a caption says (docs/layers.feature LA1a, LA2b): an export in layers renders captions as a pass of
+            // their own only when a frame has some, and writes them as SubRip
+            if in_caption(doc, owner) {
+                t["caption"] = json!(true);
+            }
             stamps(owner, &mut t);
             text.push(t);
         }
@@ -243,6 +248,19 @@ fn stamps(doc: &blitz_dom::BaseDocument, n: blitz_dom::NodeId, entry: &mut serde
         }
         at = node.parent;
     }
+}
+
+/// Whether `n` is a caption or inside one: it or an element up from it carries data-raea-role="caption".
+fn in_caption(doc: &blitz_dom::BaseDocument, n: blitz_dom::NodeId) -> bool {
+    let mut at = Some(n);
+    while let Some(x) = at {
+        let Some(node) = doc.get_node(x) else { break };
+        if node.attr(LocalName::from("data-raea-role")) == Some("caption") {
+            return true;
+        }
+        at = node.parent;
+    }
+    false
 }
 
 /// An svg's shown <text>s, in document order: each one's words (as [`run_text`] joins its chunks), its box in the

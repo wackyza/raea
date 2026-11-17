@@ -30,10 +30,10 @@ Feature: A render in layers: captions, graphics, footage and sound apart, for Ca
   The layers, top to bottom, and what each is:
     | layer    | what it holds                                                  | what the editor gets                 |
     | captions | the words said, as raea draws them, marked (LA1)               | a transparent movie + an .srt beside |
-    | graphics | everything else raea draws over the footage: text, shapes, 3D | a transparent movie                  |
+    | graphics | everything else the page draws over the footage: text, shapes | a transparent movie                  |
     | footage  | each <Video>'s file, at its trims, place and size (CC2a)       | clips of the original files          |
-    | under    | what raea draws beneath the footage: the backgrounds of what   | a movie, left out when all black     |
-    |          | holds it (CC2b)                                                |                                      |
+    | under    | what's drawn beneath the footage: the backgrounds of what      | an opaque movie, left out when all   |
+    |          | holds it (CC2b), and the 3D, which the whole page is drawn over | black                                |
     | sound    | each sound clip, and footage's own sound linked to its clip    | audio clips of the original files    |
   A layer with nothing in it is left out.
 
@@ -68,12 +68,19 @@ Feature: A render in layers: captions, graphics, footage and sound apart, for Ca
       Then it is rendered --alpha once for each layer that has something in it, with RAEA_LAYER naming the layer:
         | RAEA_LAYER | draws                                                                         |
         | captions   | only what is marked a caption, and none of the 3D                             |
-        | graphics   | what RAEA_HIDE_MEDIA=1 draws today, less captions                             |
-        | under      | what RAEA_HIDE_MEDIA=under draws today, less captions and the 3D              |
+        | graphics   | what RAEA_HIDE_MEDIA=1 draws today, less captions and the 3D                  |
+        | under      | what RAEA_HIDE_MEDIA=under draws today and the 3D, less captions; opaque      |
       And the page draws nothing inside a hidden element, so the captions pass clears what holds a caption (its
         background, border, shadow and outline) and hides the rest, as RAEA_HIDE_MEDIA=under clears what holds footage
+      And the 3D is drawn first and the whole page over it, footage included, so it is under the footage: the layer
+        under the page draws it, and since --alpha clears the 3D's clear colour (the page's background over 3D) to
+        nothing, that layer is rendered opaque, the bottom of every timeline
       And the 3D is Bevy's, not the page's, so a layer that draws none of it leaves its parts out of the frame's scene
         (runtime/scene items_of) and keeps its cameras, which render an empty view
+      And the under pass runs when there is footage or 3D (the manifest's has3d)
+      And an element whose `:has()` was matched is matched again when a node is inserted or removed under it
+        (vendor/blitz-dom mutator.rs), as Chrome does: a caption a <Sequence> put on the page at frame 10 stayed hidden
+        under the captions pass's `:not(:has(...))`, and so would footage that comes in later under RAEA_HIDE_MEDIA=under
       And the captions pass runs only when the manifest says a caption was drawn
       And RAEA_HIDE_MEDIA keeps working as it does, so `raea export capcut` is unchanged until LA4b
       And a pass is cut into clips where it draws something, frames that draw nothing a gap (CC2b)
@@ -82,17 +89,25 @@ Feature: A render in layers: captions, graphics, footage and sound apart, for Ca
       Given the manifest says, for each frame, the words of each caption drawn there
       Then each run of frames a caption shows one line of words is an entry of NAME.srt: its words as the page shows
         them (a word highlight doesn't start a new entry), its first frame and the frame after its last, in timecode
+      And a line whose words come in one by one (each frame's words starting with the last's) is one entry, its words
+        whole
       And the .srt is written beside the export for the person to upload to a network or keep, and no editor's
         project imports it (the captions movie is what the timeline shows, in raea's own style)
 
   Rule: LA3. The layers put back together are the render
     Scenario: LA3a. The fixtures' layers composited over each other match their reference render
       Given fixtures: full-frame footage with a lower third (a bar and words) and captions; a picture in picture on a
-        coloured card; captions with a word highlight; 3D over footage
+        coloured card; captions with a word highlight; 3D with a title and a caption
       When each is exported in layers and composited bottom to top (under, footage, graphics, captions)
       Then every frame matches the reference render within the alpha codec's error (CC1a's numbers), checked at least
         at each clip's first, middle and last frame
-      And this is a test of the method, run with raea's tests; an export doesn't composite its layers back
+      And this is a test of the method, not of every export: apps/layers composite.rs, run by hand on a machine with a
+        GPU (`cargo test -p raea-app-layers composite -- --ignored`, RAEA_BIN the raea), the fixtures in
+        apps/layers/fixtures, the footage engine/rune/media/tests/fixtures/clip.mp4; RAEA_LAYERS_KEEP_FRAMES keeps
+        each pass's frames for it
+      And on 11-16 (this Mac, M-series, a source build): highlight 33.0-35.1 dB, lower-third 34.1-35.1, pip-card
+        33.2-33.5, three-d 39.1-39.8; the floor is 30 dB (the reference is H.264, and the footage is decoded and scaled
+        by the test, not the page)
 
     Scenario: LA3b. What doesn't carry is said, not dropped quietly
       Then captions always go on top: a caption drawn under something else is still the top layer in the export
@@ -100,8 +115,10 @@ Feature: A render in layers: captions, graphics, footage and sound apart, for Ca
 
   Rule: LA4. One layered timeline, written by `raea export layers`, read by every editor's export
     Scenario: LA4a. `raea export layers EDIT.tsx -o DIR` writes the layers and their timeline
-      Then DIR holds layers.json, each layer's movie, NAME.srt when there are captions, and reference.mp4 (the
-        reference render, to compare the editor's timeline against; on no timeline)
+      Then DIR holds layers.json, each layer's movie, NAME.srt when there are captions, reference.mp4 (the reference
+        render, to compare the editor's timeline against; on no timeline) and render.json, its manifest
+      And footage whose file has sound but no linked sound clip plays silent there: the composition doesn't play its
+        sound at that place
       And layers.json says the frame rate, size and length, and the tracks top to bottom, each with its layer and
         its clips: the file, where it starts and how long, its first source frame, its place and size, its gain and
         fades, and the id of the clip it's linked to (footage and its own sound)

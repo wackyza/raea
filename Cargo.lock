@@ -13746,7 +13746,7 @@ name = "raea-app-capcut"
 version = "0.1.0"
 dependencies = [
  "image",
- "raea-core-scene",
+ "raea-app-layers",
  "raea-io-alpha",
  "raea-io-capcut",
  "raea-io-home",
@@ -13878,6 +13878,18 @@ dependencies = [
  "raea-runtime-bundle",
  "serde_json",
  "ureq 2.12.1",
+]
+
+[[package]]
+name = "raea-app-layers"
+version = "0.1.0"
+dependencies = [
+ "raea-core-scene",
+ "raea-io-alpha",
+ "raea-io-media",
+ "raea-runtime-bundle",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -14208,6 +14220,7 @@ dependencies = [
  "raea-app-fingerprint",
  "raea-app-game",
  "raea-app-judge",
+ "raea-app-layers",
  "raea-app-media",
  "raea-app-notes",
  "raea-app-play",

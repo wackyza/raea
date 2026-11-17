@@ -28,7 +28,7 @@ pub fn cli(args: &[String], render: impl Fn(&[String]) -> R<String>) -> Option<R
     match args.first().map(String::as_str) {
         Some("export") => Some(match args.get(1).map(String::as_str) {
             Some("capcut") => export(&args[2..]),
-            other => Err(format!("raea export takes where to export to{}: capcut\nusage: {USAGE}", other.map_or(String::new(), |o| format!(", not {o:?}")))),
+            other => Err(format!("raea export takes where to export to{}: capcut or layers\nusage: {USAGE}\n       {}", other.map_or(String::new(), |o| format!(", not {o:?}")), raea_app_layers::USAGE)),
         }),
         Some("render") => movie(args, render),
         _ => None,

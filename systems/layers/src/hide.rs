@@ -65,11 +65,12 @@ pub fn hiding_css(keys: &str, media: Option<&str>, layer: Option<&str>) -> Optio
     (!css.is_empty()).then_some(css)
 }
 
-/// Whether an export's layer (RAEA_LAYER's value) draws the composition's 3D: the graphics do, as everything raea
-/// draws over the footage; captions and what's under the footage don't (docs/layers.feature LA2a). 3D is drawn by
-/// Bevy, not the page, so the page's CSS can't hide it: runtime/scene leaves its parts out instead.
+/// Whether an export's layer (RAEA_LAYER's value) draws the composition's 3D: only the layer under the page does
+/// (docs/layers.feature LA2a). The 3D is drawn first and the whole page over it, footage included, so it's under
+/// everything the page draws. It's drawn by Bevy, not the page, so the page's CSS can't hide it: runtime/scene leaves
+/// its parts out of the captions and graphics layers instead.
 pub fn draws_3d(layer: Option<&str>) -> bool {
-    !matches!(layer, Some("captions" | "under"))
+    !matches!(layer, Some("captions" | "graphics"))
 }
 
 /// The CSS selector of the element a layer key names, and of everything inside it: "loc[#index][|use|use…]" as its
