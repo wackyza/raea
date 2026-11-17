@@ -165,8 +165,16 @@ Feature: A render in layers: captions, graphics, footage and sound apart, for Ca
         Motion), at its gain (Audio Levels)
       And a video clip and its own sound are linked clipitems, so they move together, and each editor's own control
         separates them: in Premiere, Unlink; in Resolve, Link Clips off (Cmd/Ctrl+Shift+L); in CapCut, Extract audio
+      And sound is laid out as Premiere writes it (read from an XML Premiere Pro 26.2.2 exported): the sequence
+        explodedTracks, each stereo file's channels described one by one, each channel a mono clipitem on a track of its
+        own (sourcetrack and outputchannelindex 1 and 2), every clipitem of a clip and the clip it's linked to linked
+        together, a masterclipid each and a timecode on every file. One stereo clipitem on a "Stereo" track, the first
+        layout, imported into Premiere with no sound at all
+      And each channel of a stereo file is panned to its side by an Audio Pan on its clip (-1 left, 1 right), as
+        Resolve and FCP7 write it: without it both editors import the channels centred, and a stereo track plays as
+        mono; Premiere's own track pan (PannerCurrentValue) was tried, and neither editor read it
       And a command of an editor's own (`raea export premiere`, `raea export resolve`) is added only where LA5b finds
-        that editor reading the XML differently
+        that editor reading the XML differently: none is, on 11-16
 
     Scenario: LA5b. Premiere and Resolve open it as raea rendered it
       Given the LA3a fixtures exported
@@ -175,6 +183,17 @@ Feature: A render in layers: captions, graphics, footage and sound apart, for Ca
         middle matches the reference render
       And which alpha codecs stay transparent in each is recorded here, with the version tested, and the export
         uses the first that does
+      And on 11-16, on this Mac, the multi-clip test (three raea-rendered clips A, B and C labelled with their source
+        time, cuts, a re-trim, a picture in picture on a card, four captions, graphics coming and going, footage sound
+        linked and a muted clip, a raea-rendered stereo music track, low note left and high note right): Premiere Pro
+        26.2.2 and DaVinci Resolve 21.2.0 each import it with every track, clip, source time, placement and caption as
+        raea rendered it, nothing offline, ProRes 4444 transparent, the footage's sound linked (Unlink, Link Clips) and
+        the music stereo, panned left and right on its clips
+
+    Scenario: LA5c. CapCut opens what raea export capcut writes (docs/capcut.feature CC3a)
+      Then on 11-16 CapCut 9.4.4589 listed both tests the export entered in its project list (markers from a draft it
+        made itself) and played them as raea rendered them: the footage's main track, the picture in picture on its
+        card, the overlay and captions tracks transparent (ProRes 4444), the sound and the music
 
   Rule: LA6. raea's timeline is laid out the same way (raea-feed, after LA1)
     Scenario: LA6a. A timeline read from the code puts captions on the Captions track

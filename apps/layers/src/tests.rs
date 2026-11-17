@@ -183,6 +183,10 @@ fn the_xml_has_the_tracks_bottom_first_and_footage_linked_to_its_sound() {
     // the file's sound as its two channels, left and right; the two tracks to output channels 1 and 2
     assert!(x.contains("<channelcount>1</channelcount><layout>stereo</layout><audiochannel><sourcechannel>2</sourcechannel><channellabel>right</channellabel></audiochannel>"));
     assert!(x.contains("<outputchannelindex>1</outputchannelindex></track>") && x.contains("<outputchannelindex>2</outputchannelindex></track>"));
+    // each channel panned to its own side by an Audio Pan on the clip, as Resolve writes it; nothing on the track
+    assert!(!x.contains("PannerCurrentValue"), "{x}");
+    assert!(x.contains("<effectid>audiopan</effectid><effectcategory>audiopan</effectcategory><effecttype>audiopan</effecttype><mediatype>audio</mediatype><parameter><parameterid>pan</parameterid><name>Pan</name><valuemin>-1</valuemin><valuemax>1</valuemax><value>-1</value>"), "{x}");
+    assert_eq!(x.matches("<parameterid>pan</parameterid>").count(), 4, "two stereo clips, two channels each");
     // the music at -12 dB as Audio Levels' linear gain
     assert!(x.contains("<parameterid>level</parameterid><name>Level</name><valuemin>0.00003162</valuemin><valuemax>31.6228</valuemax><value>0.251189</value>"), "{x}");
 }

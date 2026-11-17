@@ -4,7 +4,9 @@
 //! captions), its audio tracks below. Footage points at its file where it is, placed as raea drew it (Basic Motion's
 //! scale and centre, a Crop where object-fit: cover cuts it, its Opacity); a footage clip and its own sound are linked
 //! clipitems, which Premiere's Unlink and Resolve's Link Clips separate. Sound is laid out as Premiere writes it (read
-//! from an XML Premiere Pro 2026 exported): a stereo file's channels each a mono clipitem on a track of its own. A layer's movie fills the frame, its alpha
+//! from an XML Premiere Pro 2026 exported): a stereo file's channels each a mono clipitem on a track of its own, each
+//! panned to its side by an Audio Pan on the clip, as Resolve and FCP7 write it (both editors import a channel centred
+//! without it; Premiere's own track pan, PannerCurrentValue, was tried and neither read it). A layer's movie fills the frame, its alpha
 //! straight. Pure: the export (lib.rs) makes the layers and writes this beside them.
 
 use std::fmt::Write as _;
@@ -221,13 +223,21 @@ pub fn write(l: &Layers, dir: &Path) -> (String, Vec<String>) {
     let mut a = String::new();
     for (ti, m) in mono.iter().enumerate() {
         // a stereo pair's left track goes to output channel 1, its right to 2
-        let out = if mono.get(ti + 1).is_some_and(|n| n.iter().any(|(_, _, ch)| *ch == 2)) || m.iter().any(|(_, _, ch)| *ch == 2) { format!("<outputchannelindex>{}</outputchannelindex>", if m.iter().any(|(_, _, ch)| *ch == 2) { 2 } else { 1 }) } else { String::new() };
+        // which side of a stereo pair the track is: 1 left, 2 right; none for a mono file's own track
+        let side = if m.iter().any(|(_, _, ch)| *ch == 2) { Some(2) } else if mono.get(ti + 1).is_some_and(|n| n.iter().any(|(_, _, ch)| *ch == 2)) { Some(1) } else { None };
+        let out = side.map_or(String::new(), |k| format!("<outputchannelindex>{k}</outputchannelindex>"));
         let _ = write!(a, "<track currentExplodedTrackIndex=\"0\" totalExplodedTrackCount=\"1\" premiereTrackType=\"Mono\">");
         for (id, c, ch) in m {
             let gain = 10f64.powf(c.gain_db / 20.0);
             let mut body = format!("<sourcetrack><mediatype>audio</mediatype><trackindex>{ch}</trackindex></sourcetrack>");
             if (gain - 1.0).abs() > 1e-6 {
                 body.push_str(&effect("Audio Levels", "audiolevels", "audiolevels", "audiolevels", "audio", &param("level", "Level", 0.00003162, 31.6228, &format!("{gain:.6}"))));
+            }
+            // a stereo file's channel panned to its own side, as FCP7's Audio Pan on the clip (-1 left, 1 right): Premiere
+            // and Resolve both import each channel centred without it, and both read it (heard 11-16); a mono file's
+            // stays centred
+            if channels(c) == 2 {
+                body.push_str(&effect("Audio Pan", "audiopan", "audiopan", "audiopan", "audio", &param("pan", "Pan", -1.0, 1.0, if *ch == 1 { "-1" } else { "1" })));
             }
             if *ch == 1 && (c.fade_in > 0.0 || c.fade_out > 0.0) {
                 notes.push(format!("{} (frames {}-{}): its fades ({:.2} s in, {:.2} s out) aren't carried; set them in the editor", name_of(c.file), c.start, c.end() - 1, c.fade_in, c.fade_out));
